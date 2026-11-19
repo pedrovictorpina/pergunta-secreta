@@ -79,6 +79,10 @@ function advanceGuess(room) {
 function endRound(room, winnerId) {
   room.phase = 'ended';
   room.result = { winnerId, winnerName: winnerId ? nameOf(room, winnerId) : null, question: room.question, answer: room.answer.split('|')[0].trim() };
+  if (room.round === room.matchLength) {
+    const ranked = room.players.filter(p => !p.spectator).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, 'pt-BR'));
+    room.result.standings = ranked.map(({ name, score }) => ({ name, score, rank: ranked.findIndex(p => p.score === score) + 1 }));
+  }
   room.guessOrder = [];
   room.guessIndex = 0;
   if (winnerId) addLog(room, `${nameOf(room, winnerId)} acertou e ganhou 1 ponto!`);
@@ -166,7 +170,7 @@ function closeRoom(room) {
 
 function publicState(room) {
   return {
-    phase: room.phase, round: room.round, questionLabel: room.questionLabel,
+    phase: room.phase, round: room.round, matchLength: room.matchLength, questionLabel: room.questionLabel,
     players: room.players.map(p => ({ id: p.id, name: p.name, score: p.score, connected: p.connected, spectator: p.spectator === true })),
     hostId: room.hostId, turnIndex: room.turnIndex, guessOrder: room.guessOrder,
     guessIndex: room.guessIndex, wordCount: room.wordCount,
@@ -234,7 +238,11 @@ function handleAction(room, p, payload) {
   const action = payload?.action;
   if (action === 'start') {
     if (room.hostId !== p.id || (room.phase !== 'lobby' && room.phase !== 'ended')) return 'Só o anfitrião pode começar a rodada.';
+    if (room.result?.standings) return 'A partida acabou. Inicie uma revanche para jogar de novo.';
     if (!room.players.some(canPlay)) return 'Aguarde pelo menos um jogador conectado para começar.';
+    const matchLength = payload.matchLength ?? room.matchLength;
+    if (room.round && matchLength !== room.matchLength) return 'O número de rodadas já foi definido para esta partida.';
+    if (matchLength !== 5 && matchLength !== 10) return 'Escolha uma partida de 5 ou 10 rodadas.';
     let question, answer, questionLabel = null;
     if (payload.mode === 'custom') {
       question = shorten(payload.question, 320);
@@ -264,6 +272,7 @@ function handleAction(room, p, payload) {
     room.questionLabel = questionLabel;
     room.wordTokens = wordsOf(question);
     room.wordCount = room.wordTokens.length;
+    room.matchLength = matchLength;
     room.round++;
     room.phase = 'pick';
     room.revealed = {};
@@ -274,14 +283,22 @@ function handleAction(room, p, payload) {
     addLog(room, `Rodada ${room.round} iniciada. Pergunta escondida!`);
     return null;
   }
-  if (action === 'nextRound') {
+  if (action === 'nextRound' || action === 'rematch') {
     if (room.hostId !== p.id || room.phase !== 'ended') return 'Apenas o anfitrião pode preparar a próxima rodada.';
+    const rematch = action === 'rematch';
+    const matchEnded = Boolean(room.result?.standings);
+    if (rematch !== matchEnded) return matchEnded ? 'A partida acabou. Inicie uma revanche para jogar de novo.' : 'Termine a partida antes de começar uma revanche.';
+    if (rematch) {
+      room.round = 0;
+      room.players.forEach(player => { player.score = 0; });
+      room.events = [];
+    }
     room.phase = 'lobby';
     room.turnIndex = nextConnectedIndex(room, room.turnIndex);
     room.wordCount = 0; room.wordTokens = []; room.answer = ''; room.question = '';
     room.questionLabel = null;
     room.revealed = {}; room.result = null; room.guessOrder = []; room.guessIndex = 0;
-    addLog(room, 'Preparando uma nova rodada.');
+    addLog(room, rematch ? 'Preparando a revanche.' : 'Preparando uma nova rodada.');
     return null;
   }
   if (p.spectator) return 'Quem só organiza acompanha a rodada sem jogar.';
@@ -324,7 +341,7 @@ io.on('connection', socket => {
     if (rooms.size >= MAX_ROOMS) return fail(ack, 'Muitas salas ativas no momento.');
     const code = createCode();
     const p = { id: crypto.randomUUID(), name, score: 0, token: genToken(), connected: false, socketId: null, spectator: data?.spectator === true };
-    const room = { code, hostId: p.id, players: [p], phase: 'lobby', round: 0, turnIndex: 0, guessOrder: [], guessIndex: 0,
+    const room = { code, hostId: p.id, players: [p], phase: 'lobby', round: 0, matchLength: 5, turnIndex: 0, guessOrder: [], guessIndex: 0,
       wordCount: 0, wordTokens: [], question: '', answer: '', questionLabel: null, revealed: {}, result: null,
       events: ['Sala criada. Compartilhe o link com seus colegas.'], asked: new Map(), kickedTokens: new Set(), kickedNames: new Set(), lastActivity: Date.now(), hostTimer: null };
     rooms.set(code, room);
@@ -340,6 +357,7 @@ io.on('connection', socket => {
     if (!room) return fail(ack, 'Sala não encontrada. Confira o código. Se o servidor reiniciou, é necessário criar outra sala.');
     if (token && room.kickedTokens.has(token)) return fail(ack, 'Você foi removido desta sala pelo anfitrião.');
     let p = token && room.players.find(x => x.token === token);
+    if (data?.resume === true && !p) return fail(ack, 'Sua sessão nesta sala expirou. Entre novamente com seu nome.');
     if (!p) {
       if (room.phase !== 'lobby') return fail(ack, 'A partida já começou. Só é possível entrar numa nova sala antes de começar a rodada.');
       if (!NAME_PATTERN.test(name)) return fail(ack, 'Informe seu nome.');

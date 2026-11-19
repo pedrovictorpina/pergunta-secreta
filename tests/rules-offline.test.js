@@ -94,7 +94,8 @@ test('sorteia por tema e nível sem repetir até esgotar a combinação na sala'
     assert.equal(picker.send('action', { action: 'reveal', index: 0 }).ok, true);
     assert.equal(picker.send('action', { action: 'guess', guess: room.answer.split('|')[0].trim() }).ok, true);
     const question = room.question;
-    assert.equal(ana.send('action', { action: 'nextRound' }).ok, true);
+    const nextAction = room.result.standings ? 'rematch' : 'nextRound';
+    assert.equal(ana.send('action', { action: nextAction }).ok, true);
     return question;
   };
 
@@ -115,6 +116,54 @@ test('sorteia por tema e nível sem repetir até esgotar a combinação na sala'
   play({ theme: 'filmes', difficulty: 'facil' }, filmes.facil, 'Filmes · Fácil');
   play({}, require('../perguntas/gerais.json').medio, 'Conhecimentos gerais · Médio');
   play({ mode: 'custom', question: 'Que cor?', answer: 'Verde', theme: 'invalido' }, [['Que cor?', 'Verde']], null);
+});
+
+test('partidas de cinco e dez rodadas encerram com classificação e permitem revanche', () => {
+  const server = loadServer();
+  const start = { action: 'start', mode: 'custom', question: 'Que cor?', answer: 'Verde' };
+
+  for (const matchLength of [5, 10]) {
+    const { ana, bruno, carla, room } = roomWithThree(server);
+    assert.equal(ana.send('action', { ...start, matchLength: 6 }).ok, false);
+    const winners = [ana, bruno, carla, ana, bruno];
+
+    for (let index = 0; index < matchLength; index++) {
+      const action = index === 0 ? { ...start, matchLength } : start;
+      assert.equal(ana.send('action', action).ok, true);
+      assert.equal(server.publicState(room).matchLength, matchLength);
+      assert.equal(ana.send('action', { action: 'rematch' }).ok, false);
+      const picker = server.io.sockets.sockets.get(room.players[room.turnIndex].socketId);
+      assert.equal(picker.send('action', { action: 'reveal', index: 0 }).ok, true);
+      const winner = winners[index % winners.length];
+      while (room.players.find(p => p.id === room.guessOrder[room.guessIndex]).socketId !== winner.id) {
+        const player = room.players.find(p => p.id === room.guessOrder[room.guessIndex]);
+        assert.equal(server.io.sockets.sockets.get(player.socketId).send('action', { action: 'skipGuess' }).ok, true);
+      }
+      assert.equal(winner.send('action', { action: 'guess', guess: 'Verde' }).ok, true);
+      if (index + 1 < matchLength) {
+        assert.equal(room.result.standings, undefined);
+        assert.equal(ana.send('action', { action: 'nextRound' }).ok, true);
+      }
+    }
+
+    const score = matchLength === 5 ? 2 : 4;
+    assert.deepEqual(server.publicState(room).result.standings, [
+      { name: 'Ana', score, rank: 1 },
+      { name: 'Bruno', score, rank: 1 },
+      { name: 'Carla', score: score / 2, rank: 3 }
+    ]);
+    assert.equal(ana.send('action', start).ok, false);
+    assert.equal(ana.send('action', { action: 'nextRound' }).ok, false);
+    assert.equal(bruno.send('action', { action: 'rematch' }).ok, false);
+    assert.equal(ana.send('leaveRoom', {}).ok, true);
+    assert.equal(room.result.standings[0].name, 'Ana');
+    assert.equal(bruno.send('action', { action: 'rematch' }).ok, true);
+    assert.equal(room.round, 0);
+    assert.equal(room.result, null);
+    assert.deepEqual(room.players.map(p => p.score), [0, 0]);
+    assert.equal(server.rooms.get(room.code), room);
+    assert.equal(bruno.send('action', { ...start, matchLength: matchLength === 5 ? 10 : 5 }).ok, true);
+  }
 });
 
 test('ao remover quem vai chutar, a vez passa ao próximo em ordem circular', () => {

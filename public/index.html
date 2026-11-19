@@ -37,6 +37,9 @@
     .error{color:#ffd3df;border:1px solid #a45b71;background:#4a293b;padding:12px 14px;border-radius:12px;margin-top:15px;font-size:13px;overflow-wrap:anywhere}
     .room-bar{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:17px 20px;margin-bottom:20px;flex-wrap:wrap}
     .room-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .room-copy{flex:0 0 100%}.room-copy label{margin-top:0}.room-status{flex:0 0 100%;margin:0}
+    .room-dialog{width:min(420px,calc(100% - 32px));max-height:calc(100% - 32px);padding:22px;color:var(--ink)}
+    .room-dialog::backdrop{background:#101526a6}.room-dialog .result-actions{justify-content:flex-end}
     .room-id{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.room-code{font-size:23px;font-weight:950;letter-spacing:.09em;color:var(--mint)}.muted{color:var(--muted);font-size:13px}
     .lobby-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:18px}.lobby-card{padding:27px}
     .person-list{display:flex;flex-direction:column;gap:9px;margin-top:17px}
@@ -66,11 +69,15 @@
     .whose strong{display:block;font-size:23px;letter-spacing:-.025em}.order{font-size:12px;color:#c4d2e6;overflow-wrap:anywhere}
     .guessform{display:flex;flex-direction:column;gap:9px}.feedback{font-size:14px;color:var(--warning);margin:12px 0 0}.feedback:empty{margin:0}
     #guess-caption{margin:0 0 4px;overflow-wrap:anywhere}
-    #guess-clue{margin:4px 0;font-weight:750;overflow-wrap:anywhere}
+    .clue-preview{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 6px;max-height:6rem;overflow:auto;margin:8px 0;font-size:16px;font-weight:750;overflow-wrap:anywhere}
+    .clue-preview:focus-visible{outline:2px solid var(--mint);outline-offset:2px}.clue-preview span{min-width:0}
+    .clue-gap{color:var(--muted)}.clue-current{color:var(--mint);text-decoration:underline;text-underline-offset:3px}
     .score{display:flex;align-items:center;gap:10px;padding:11px 0}.score+.score{border-top:1px solid #34415d}.score .name{flex:1;font-size:13px;font-weight:750;min-width:0;overflow-wrap:anywhere}.score .points{font-weight:900;font-size:14px;white-space:nowrap}.score.active .name{color:var(--mint)}
     .logs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;max-height:190px;overflow:auto}.logs li{border-left:2px solid #696397;padding-left:10px;color:#b7c3da;font-size:12px}
     .endbox{margin-bottom:16px;background:linear-gradient(120deg,#2f5750,#283e58);border:1px solid #669c91;border-radius:16px;padding:22px;overflow-wrap:anywhere}.endbox h2{font-size:27px;margin:6px 0}.answer{font-size:22px;color:var(--mint);font-weight:900}
     .result-actions{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+    .standings{list-style:none;margin:0;padding:0}.standings .count{min-width:2.75em;padding:4px 8px;text-align:center}
+    #round-result{scroll-margin-top:max(12px,env(safe-area-inset-top))}
     .connect-warning{border:1px solid #a47958;background:#4c3d32;color:#ffe1bf;padding:13px 17px;border-radius:13px;margin-bottom:18px}
     footer{text-align:center;margin-top:35px;color:#8290ab;font-size:12px}
     @media(max-width:850px){.start-grid,.lobby-grid,.game-grid{grid-template-columns:1fr}.side{display:grid;grid-template-columns:1fr 1fr}.side .history{grid-column:1/-1}}
@@ -133,7 +140,32 @@
   </section>
 
   <div id="room-view" hidden>
-    <div class="card room-bar"><div class="room-id"><span class="muted">Sala</span><span id="room-code-label" class="room-code"></span><span class="pill" id="role-label"></span></div><div class="room-actions"><button id="copy-link" class="btn small primary">Copiar link de convite</button><button id="copy-code" class="btn small ghost">Copiar código</button><button id="leave-room" class="btn small secondary">Sair da sala</button><button id="close-room" class="btn small danger" hidden>Encerrar sala</button></div></div>
+    <div class="card room-bar">
+      <div class="room-id"><span class="muted">Sala</span><span id="room-code-label" class="room-code"></span><span class="pill" id="role-label"></span></div>
+      <div class="room-actions">
+        <button id="share-room" class="btn small primary" hidden>Compartilhar sala</button>
+        <button id="copy-link" class="btn small primary">Copiar link de convite</button>
+        <button id="copy-code" class="btn small ghost">Copiar código</button>
+        <button id="leave-room" class="btn small secondary">Sair da sala</button>
+        <button id="close-room" class="btn small danger" hidden>Encerrar sala</button>
+      </div>
+      <p id="invite-status" class="muted room-status" role="status" hidden></p>
+      <div id="manual-copy" class="room-copy" hidden>
+        <label for="manual-copy-value">Copie o texto selecionado</label>
+        <input id="manual-copy-value" type="text" readonly>
+      </div>
+    </div>
+    <dialog id="room-dialog" class="card room-dialog" aria-labelledby="room-dialog-title" aria-describedby="room-dialog-message">
+      <form method="dialog">
+        <h2 id="room-dialog-title"></h2>
+        <p id="room-dialog-message"></p>
+        <div class="result-actions">
+          <button class="btn ghost" type="submit" value="cancel" autofocus>Cancelar</button>
+          <button id="room-dialog-confirm" class="btn danger" type="submit" value="confirm"></button>
+        </div>
+      </form>
+    </dialog>
+    <div id="room-error" class="error" role="alert" hidden></div>
     <div id="connection-warning" class="connect-warning" hidden></div>
     <section id="lobby-view">
       <div class="hero"><h1>Sala de espera</h1><p class="lead" id="lobby-lead">Os participantes aparecem aqui assim que entram. Quando estiver tudo certo, o anfitrião começa a rodada.</p></div>
@@ -164,6 +196,13 @@
             </div>
           </div>
           <div id="custom-fields" hidden><label for="custom-question">Pergunta secreta</label><textarea rows="3" id="custom-question" maxlength="320" placeholder="Ex.: Qual planeta é conhecido como planeta vermelho?"></textarea><label for="custom-answer">Resposta correta</label><input id="custom-answer" maxlength="180" placeholder="Ex.: Marte"><p class="muted">Para mais de uma resposta válida, separe por |.</p></div>
+          <div id="match-settings" hidden>
+            <label for="match-length">Duração da partida</label>
+            <select id="match-length">
+              <option value="5">5 rodadas</option>
+              <option value="10">10 rodadas</option>
+            </select>
+          </div>
           <div id="host-error" class="error" hidden></div>
           <button id="start-game" class="btn primary full">Começar a rodada</button>
           <p id="start-hint" class="sub" hidden>Aguarde pelo menos um jogador conectado para começar.</p>
@@ -179,13 +218,32 @@
           <div class="board-head"><div><h2>Palavras escondidas</h2><span class="muted" id="round-label">Rodada 1</span></div><span class="count" id="reveal-count">0 / 0 reveladas</span></div>
           <div class="progress"><span id="reveal-progress" style="width:0%"></span></div>
           <div id="turnbar" class="turnbar"><p id="board-caption" class="caption" role="status"></p><button id="skip-pick" class="btn secondary small" hidden>Passar vez</button></div>
-          <div id="round-result" class="endbox" hidden><h2 id="result-title"></h2><p id="question-result"></p><p>Resposta: <span id="answer-result" class="answer"></span></p><div class="result-actions"><button id="next-round" class="btn primary" hidden>Preparar próxima rodada</button><span id="waiting-next" class="muted" hidden>Aguardando o anfitrião preparar a próxima rodada.</span></div></div>
-          <div class="words" id="word-grid"></div>
+          <div id="round-result" class="endbox" hidden>
+            <h2 id="result-title"></h2>
+            <p id="round-outcome" hidden></p>
+            <p id="question-result"></p>
+            <p>Resposta: <span id="answer-result" class="answer"></span></p>
+            <section id="match-result" aria-labelledby="match-title" hidden>
+              <h3 id="match-title">Classificação final</h3>
+              <p id="match-summary"></p>
+              <ol id="match-standings" class="standings" role="list"></ol>
+            </section>
+            <div class="result-actions">
+              <button id="next-round" class="btn primary" hidden>Preparar próxima rodada</button>
+              <span id="waiting-next" class="muted" hidden>Aguardando o anfitrião preparar a próxima rodada.</span>
+            </div>
+          </div>
           <p id="board-feedback" class="feedback" role="status"></p>
+          <div class="words" id="word-grid"></div>
         </section>
         <aside class="side">
           <section class="card" id="guess-panel"><h3>Hora dos palpites</h3>
-            <div class="whose"><div class="mini" id="guess-count"></div><strong id="guess-caption"></strong><p id="guess-clue"></p><div class="order" id="guess-order"></div></div>
+            <div class="whose">
+              <div class="mini" id="guess-count"></div>
+              <strong id="guess-caption"></strong>
+              <div id="guess-clue" class="clue-preview" role="group" aria-label="Palavras reveladas na ordem da pergunta" tabindex="0"></div>
+              <div class="order" id="guess-order"></div>
+            </div>
             <form id="guess-form" class="guessform" hidden><input id="guess-input" maxlength="120" aria-label="Seu palpite" placeholder="Qual é a resposta?" autocomplete="off"><button id="guess-submit" class="btn primary" type="submit">Enviar palpite</button><button id="guess-skip" class="btn ghost small" type="button">Pular meu palpite</button></form><p id="feedback" class="feedback" aria-live="polite"></p>
           </section>
           <section class="card"><h3>Placar</h3><div id="scoreboard"></div></section>

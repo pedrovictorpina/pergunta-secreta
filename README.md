@@ -36,6 +36,7 @@ O arquivo `render.yaml` pode ser usado como Blueprint, se preferir.
 
 ## Controles da sala
 
+- **Compartilhar sala** abre o menu do dispositivo quando disponível. **Copiar link de convite** funciona como alternativa.
 - **Jogar também**: quem cria a sala organiza a partida e participa dos turnos normalmente.
 - **Só organizar**: quem cria a sala inicia as rodadas, acompanha a partida e gerencia os participantes. O anfitrião fica fora dos turnos e do placar. É preciso ter pelo menos um jogador conectado para começar.
 - **Sair da sala** (todos): remove o próprio participante imediatamente. Os outros continuam jogando. Se o anfitrião sair, a função é transferida para outra pessoa; se era o único participante, a sala é apagada.
@@ -50,17 +51,19 @@ A remoção impede o retorno usando a sessão anterior e o mesmo nome. Como não
 2. No Android (Chrome), abra o menu do navegador e escolha **Instalar app** ou **Adicionar à tela inicial**. No iPhone (Safari), abra **Compartilhar**, toque em **Adicionar à Tela de Início** e confirme a abertura como app, se essa opção aparecer.
 3. Abra o Pergunta Secreta pelo ícone e crie uma sala ou entre com o código. As partidas precisam de conexão com o servidor.
 
+Ao reabrir o aplicativo, a sessão anterior é retomada se a sala ainda existir no servidor. Para encerrar sua sessão neste aparelho, use **Sair da sala**.
+
 ### Atualização de um site já publicado no Render
 
 Substitua os arquivos do projeto no **mesmo repositório GitHub** usado pelo serviço Render e faça commit/push. O Render precisa publicar a nova versão para os botões funcionarem; não basta atualizar somente o HTML, pois existem mudanças no servidor (`server.js`). Os participantes que estavam em salas da versão anterior precisarão criar uma nova sala após a atualização, porque as salas ficam em memória.
 
 ## Regras
 
-1. Alguém cria a sala e compartilha o link. Cada um entra com seu nome.
-2. Quem está na vez escolhe um número; uma palavra da pergunta é revelada **para todos**.
+1. Alguém cria a sala e compartilha o link. Cada um entra com seu nome. O anfitrião escolhe 5 ou 10 rodadas antes de começar.
+2. Quem está na vez escolhe um número. A palavra revelada aparece **para todos** no tabuleiro e na prévia da pergunta com lacunas, acima do palpite.
 3. Os palpites seguem automaticamente a ordem circular, começando por quem pediu a dica.
 4. Cada pessoa pode tentar uma vez por palavra revelada. Se ninguém acertar, o próximo participante pede outra palavra.
-5. Quem acerta ganha um ponto; o anfitrião inicia a rodada seguinte.
+5. Quem acerta ganha um ponto. No fim da partida, todos veem a classificação e os empates. O anfitrião pode preparar uma revanche na mesma sala, com o placar zerado.
 6. Com um só jogador, ele pode pedir novas palavras após errar ou pular a tentativa.
 7. Na pergunta surpresa, o anfitrião escolhe o tema e a dificuldade. A sala sorteia uma pergunta diferente a cada rodada até esgotar a combinação escolhida. Também é possível cadastrar uma pergunta própria.
 
@@ -76,6 +79,8 @@ Substitua os arquivos do projeto no **mesmo repositório GitHub** usado pelo ser
 
 O catálogo fica em `perguntas/`, no servidor Node.js. Cada entrada contém a pergunta e a resposta. Use `|` para separar respostas alternativas aceitas na mesma entrada.
 
+Use o [roteiro de teste de dificuldade](docs/teste-dificuldade.md) para registrar casos durante partidas reais.
+
 ## Estrutura
 
 - `server.js`: regras, salas e validação das jogadas
@@ -86,4 +91,4 @@ O catálogo fica em `perguntas/`, no servidor Node.js. Cada entrada contém a pe
 
 ## Privacidade
 
-Cada participante informa apenas um nome de exibição. A sessão é identificada por token aleatório salvo na aba do navegador. As respostas secretas não são transmitidas aos participantes antes da rodada acabar.
+Cada participante informa apenas um nome de exibição. A sessão é identificada por um token aleatório. No navegador, ele é salvo na aba. No aplicativo instalado, ele também fica salvo no armazenamento local para permitir a retomada. As respostas secretas não são transmitidas aos participantes antes da rodada acabar.

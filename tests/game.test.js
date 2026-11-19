@@ -140,7 +140,9 @@ test('reconexão com token preserva o participante e os pontos', async () => {
   const room = rooms.get(welcome.code);
   ana.disconnect();
   const newer = await connect();
-  const joined = await send(newer, 'joinRoom', { code: welcome.code, name: 'Ana', token: welcome.token });
+  const unknown = await send(newer, 'joinRoom', { code: welcome.code, name: 'Novo jogador', token: 'inválido', resume: true });
+  assert.equal(unknown.ok, false);
+  const joined = await send(newer, 'joinRoom', { code: welcome.code, token: welcome.token, resume: true });
   assert.equal(joined.playerId, welcome.playerId);
   assert.equal(room.players.length, 1);
   assert.equal(room.players[0].connected, true);
