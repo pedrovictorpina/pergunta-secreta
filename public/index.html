@@ -81,6 +81,24 @@
     #round-result{scroll-margin-top:max(12px,env(safe-area-inset-top))}
     .connect-warning{border:1px solid #a47958;background:#4c3d32;color:#ffe1bf;padding:13px 17px;border-radius:13px;margin-bottom:18px}
     footer{text-align:center;margin-top:35px;color:#8290ab;font-size:12px}
+    @media(min-width:1100px) and (min-height:700px){
+      body:has(#game-view:not([hidden])) .shell{max-width:1800px;padding:16px 20px}
+      body:has(#game-view:not([hidden])) header{margin-bottom:16px}
+      body:has(#game-view:not([hidden])) footer{display:none}
+      #room-view:has(#game-view:not([hidden])){display:grid;grid-template-columns:minmax(190px,240px) minmax(0,1fr) minmax(240px,300px);grid-template-rows:auto auto minmax(0,1fr);gap:12px;align-items:start}
+      #room-view:has(#game-view:not([hidden]))>.room-bar{grid-column:1;margin:0;padding:14px}
+      #room-view:has(#game-view:not([hidden]))>.room-bar .room-actions{display:grid;grid-template-columns:1fr;width:100%}
+      #room-view:has(#game-view:not([hidden]))>#match-controls{grid-column:1;grid-row:2}
+      #room-view:has(#game-view:not([hidden]))>#room-error,#room-view:has(#game-view:not([hidden]))>#connection-warning,#room-view:has(#game-view:not([hidden]))>#pause-status{grid-column:2 / 4;margin:0}
+      #game-view:not([hidden]){grid-column:2 / 4;grid-row:1 / 4;min-width:0}
+      #game-view>.hero{display:none}
+      #game-view .game-grid{grid-template-columns:minmax(0,1fr) minmax(240px,300px);gap:12px}
+      #game-view .board{padding:18px;max-height:calc(100dvh - 100px);overflow:auto}
+      #game-view .side{gap:12px;max-height:calc(100dvh - 100px);overflow:auto}
+      #game-view .side .card{padding:16px}
+      #game-view .word{min-height:72px}
+      #game-view .history .logs{max-height:35vh}
+    }
     @media(max-width:850px){.start-grid,.lobby-grid,.game-grid{grid-template-columns:1fr}.side{display:grid;grid-template-columns:1fr 1fr}.side .history{grid-column:1/-1}}
     @media(max-width:600px){
       .shell{padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}

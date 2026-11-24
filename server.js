@@ -175,7 +175,7 @@ function publicState(room, eventOffset = 0) {
     hostId: room.hostId, turnIndex: room.turnIndex, guessOrder: room.guessOrder,
     guessIndex: room.guessIndex, wordCount: room.wordCount,
     revealed: room.revealed, clueIndex: room.phase === 'guess' ? room.clueIndex : null,
-    eventOffset, events: room.events.slice(eventOffset), result: room.result
+    eventVersion: room.eventVersion, eventOffset, events: room.events.slice(eventOffset), result: room.result
   };
 }
 function publish(room) {
@@ -297,6 +297,11 @@ function handleAction(room, p, payload) {
     room.wordCount = room.wordTokens.length;
     room.matchLength = matchLength;
     room.nextSettings = null;
+    if (room.round === 0) {
+      room.events = [];
+      room.publishedEvents = 0;
+      room.eventVersion++;
+    }
     room.round++;
     room.phase = 'pick';
     room.revealed = {};
@@ -317,6 +322,9 @@ function handleAction(room, p, payload) {
     if (rematch || restart) {
       room.round = 0;
       room.players.forEach(player => { player.score = 0; });
+      room.events = [];
+      room.publishedEvents = 0;
+      room.eventVersion++;
     }
     room.paused = false;
     room.phase = 'lobby';
@@ -369,7 +377,7 @@ io.on('connection', socket => {
     const p = { id: crypto.randomUUID(), name, score: 0, token: genToken(), connected: false, socketId: null, spectator: data?.spectator === true };
     const room = { code, hostId: p.id, players: [p], phase: 'lobby', paused: false, round: 0, matchLength: 5, nextSettings: null, turnIndex: 0, guessOrder: [], guessIndex: 0,
       wordCount: 0, wordTokens: [], question: '', answer: '', questionLabel: null, revealed: {}, result: null,
-      events: ['Sala criada. Compartilhe o link com seus colegas.'], publishedEvents: 0, asked: new Map(), kickedTokens: new Set(), kickedNames: new Set(), lastActivity: Date.now(), hostTimer: null };
+      events: ['Sala criada. Compartilhe o link com seus colegas.'], eventVersion: 0, publishedEvents: 0, asked: new Map(), kickedTokens: new Set(), kickedNames: new Set(), lastActivity: Date.now(), hostTimer: null };
     rooms.set(code, room);
     bindPlayer(socket, room, p);
     ok(ack, { code, playerId: p.id, token: p.token, name: p.name, hostId: room.hostId, state: publicState(room) });

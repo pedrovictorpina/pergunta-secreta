@@ -225,7 +225,7 @@ test('só o anfitrião edita a próxima rodada e reinicia a partida na mesma sal
   assert.deepEqual(room.revealed, {});
 });
 
-test('mantém todo o histórico da sala e transmite só as novas jogadas a quem já entrou', () => {
+test('mantém o histórico da partida e o reinicia para todos ao reiniciar', () => {
   const server = loadServer();
   const { ana, a, room } = roomWithThree(server);
   const start = { action: 'start', mode: 'custom', question: 'Qual cor do céu?', answer: 'Azul' };
@@ -238,13 +238,13 @@ test('mantém todo o histórico da sala e transmite só as novas jogadas a quem 
   assert.ok(beforeRestart > 14);
   assert.equal(ana.send('action', { action: 'restart' }).ok, true);
   const update = ana.notifications.at(-1)[1];
-  assert.equal(update.eventOffset, beforeRestart);
+  assert.equal(update.eventOffset, 0);
   assert.deepEqual(update.events, ['Partida reiniciada pelo anfitrião.']);
   const late = server.io.connect().send('joinRoom', { code: a.code, name: 'Dora' });
   assert.equal(late.ok, true);
   assert.equal(late.state.eventOffset, 0);
-  assert.equal(late.state.events[0], 'Sala criada. Compartilhe o link com seus colegas.');
-  assert.equal(late.state.events.length, beforeRestart + 2);
+  assert.equal(late.state.eventVersion, update.eventVersion);
+  assert.deepEqual(late.state.events, ['Partida reiniciada pelo anfitrião.', 'Dora entrou na sala.']);
 });
 
 test('ao remover quem vai chutar, a vez passa ao próximo em ordem circular', () => {

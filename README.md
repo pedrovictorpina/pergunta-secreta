@@ -47,7 +47,7 @@ A remoção impede o retorno usando a sessão anterior e o mesmo nome. Como não
 
 Durante a partida, o anfitrião pode **pausar e retomar** os turnos. Novos jogadores podem entrar enquanto a sala estiver pausada. Também pode **editar a próxima rodada**, escolhendo tema e dificuldade ou uma pergunta própria, e **reiniciar a partida**, zerando o placar e voltando à preparação da primeira rodada na mesma sala.
 
-**Últimas jogadas** exibe todo o histórico da sala, com os eventos mais recentes no topo. O histórico continua disponível nas rodadas seguintes, após reiniciar e durante a revanche. Ele fica em memória enquanto a sala existir.
+**Últimas jogadas** exibe o histórico da partida atual, com os eventos mais recentes no topo. Ao reiniciar ou começar uma revanche, o histórico é zerado. Ele fica em memória enquanto a sala existir.
 
 ## Instalar no celular
 

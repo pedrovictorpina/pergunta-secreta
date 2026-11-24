@@ -10,6 +10,7 @@
   let ready = false, connecting = false, reconnecting = false;
   let lobbySettings = null, editorSnapshot = null;
   let logCount = 0;
+  let logVersion = null;
   const queryRoom = new URLSearchParams(location.search).get('sala');
   const urlCode = String(queryRoom || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7);
 
@@ -39,6 +40,7 @@
     state = welcome.state;
     $('event-log').replaceChildren();
     logCount = 0;
+    logVersion = null;
     updateLog(state);
     isHost = state.hostId === myPlayerId;
     connecting = false;
@@ -222,6 +224,11 @@
     $('round-editor').close();
   }
   function updateLog(next) {
+    if (logVersion !== next.eventVersion) {
+      $('event-log').replaceChildren();
+      logCount = 0;
+      logVersion = next.eventVersion;
+    }
     const events = next.events.slice(Math.max(0, logCount - next.eventOffset));
     if (!events.length) return;
     logCount = next.eventOffset + next.events.length;
