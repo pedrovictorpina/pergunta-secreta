@@ -8,6 +8,8 @@
   const installed = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   let socket = null, session = null, state = null, myPlayerId = '', roomCode = '', isHost = false;
   let ready = false, connecting = false, reconnecting = false;
+  let lobbySettings = null, editorSnapshot = null;
+  let logCount = 0;
   const queryRoom = new URLSearchParams(location.search).get('sala');
   const urlCode = String(queryRoom || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7);
 
@@ -21,7 +23,11 @@
     history.replaceState(null, '', `${location.pathname}?sala=${roomCode}`);
   }
   function saveSession(welcome) {
-    if (roomCode !== welcome.code) $('match-settings').hidden = true;
+    if (roomCode !== welcome.code) {
+      $('match-settings').hidden = true;
+      applyQuestionOptions({ mode: 'surprise', theme: 'gerais', difficulty: 'medio' });
+    }
+    lobbySettings = null;
     session = { code: welcome.code, name: welcome.name, token: welcome.token };
     const saved = JSON.stringify(session);
     try { sessionStorage.setItem(savedKey, saved); } catch (_) { /* storage opcional */ }
@@ -31,6 +37,9 @@
     roomCode = welcome.code;
     myPlayerId = welcome.playerId;
     state = welcome.state;
+    $('event-log').replaceChildren();
+    logCount = 0;
+    updateLog(state);
     isHost = state.hostId === myPlayerId;
     connecting = false;
     ready = true;
@@ -58,6 +67,7 @@
     ready = false;
     connecting = false;
     reconnecting = false;
+    lobbySettings = null;
     state = null;
     myPlayerId = '';
     roomCode = '';
@@ -70,6 +80,7 @@
     showError('invite-status', '');
     showError('room-error', '');
     if ($('room-dialog').open) $('room-dialog').close('cancel');
+    closeRoundEditor();
     $('feedback').textContent = '';
     $('board-feedback').textContent = '';
     $('join-code').value = '';
@@ -85,17 +96,19 @@
       else if (event === 'leaveRoom') backToStart('Você saiu da sala.');
     });
   }
-  function confirmRoom(title, message, event, payload) {
+  function confirmRoom(title, message, onConfirm) {
     const dialog = $('room-dialog');
     if (dialog.open) return;
     const code = roomCode;
     $('room-dialog-title').textContent = title;
     $('room-dialog-message').textContent = message;
     $('room-dialog-confirm').textContent = title;
-    dialog.returnValue = '';
-    dialog.addEventListener('close', () => {
-      if (dialog.returnValue === 'confirm' && code === roomCode) roomControl(event, payload);
-    }, { once: true });
+    dialog.querySelector('form').onsubmit = event => {
+      event.preventDefault();
+      if (!dialog.open) return;
+      dialog.close();
+      if (event.submitter?.value === 'confirm' && code === roomCode) onConfirm();
+    };
     dialog.showModal();
   }
 
@@ -159,9 +172,60 @@
     if (!ready) return;
     send('action', { action: type, ...data }, error => {
       if (type === 'start') showError('host-error', error || '');
+      else if (['pause', 'resume', 'restart'].includes(type)) showError('room-error', error || '');
       else $(type === 'guess' || type === 'skipGuess' ? 'feedback' : 'board-feedback').textContent = error || '';
       onResult?.(!error);
     });
+  }
+  function readQuestionOptions() {
+    return {
+      mode: document.querySelector('input[name="question-mode"]:checked').value,
+      question: $('custom-question').value.trim(), answer: $('custom-answer').value.trim(),
+      theme: $('question-theme').value, difficulty: $('question-difficulty').value
+    };
+  }
+  function showQuestionMode() {
+    const custom = document.querySelector('input[name="question-mode"]:checked').value === 'custom';
+    $('custom-fields').hidden = !custom;
+    $('surprise-fields').hidden = custom;
+  }
+  function applyQuestionOptions(options) {
+    document.querySelector(`input[name="question-mode"][value="${options.mode === 'custom' ? 'custom' : 'surprise'}"]`).checked = true;
+    $('custom-question').value = options.question ?? '';
+    $('custom-answer').value = options.answer ?? '';
+    if (options.theme) $('question-theme').value = options.theme;
+    if (options.difficulty) $('question-difficulty').value = options.difficulty;
+    showQuestionMode();
+  }
+  function editNextRound() {
+    if (editorSnapshot || !ready || !isHost) return;
+    const dialog = $('round-editor');
+    const snapshot = editorSnapshot = readQuestionOptions();
+    $('editor-question-fields').append($('round-options'));
+    $('save-round-edit').disabled = true;
+    $('cancel-round-edit').disabled = false;
+    showError('editor-error', '');
+    dialog.showModal();
+    send('nextSettings', null, (error, reply) => {
+      if (!dialog.open || editorSnapshot !== snapshot) return;
+      showError('editor-error', error || '');
+      if (error) return;
+      applyQuestionOptions(reply.settings || { ...snapshot, question: '', answer: '' });
+      $('save-round-edit').disabled = false;
+    });
+  }
+  function closeRoundEditor(saved = false) {
+    if (!editorSnapshot) return;
+    $('lobby-question-fields').append($('round-options'));
+    if (!saved) applyQuestionOptions(editorSnapshot);
+    editorSnapshot = null;
+    $('round-editor').close();
+  }
+  function updateLog(next) {
+    const events = next.events.slice(Math.max(0, logCount - next.eventOffset));
+    if (!events.length) return;
+    logCount = next.eventOffset + next.events.length;
+    $('event-log').insertAdjacentHTML('afterbegin', events.reverse().map(text => `<li>${escapeHtml(text)}</li>`).join(''));
   }
   function playerMarkup(p, lobby = false) {
     const active = p.id === state.players[state.turnIndex]?.id;
@@ -174,6 +238,14 @@
     isHost = state.hostId === myPlayerId;
     const spectator = state.players.find(p => p.id === myPlayerId)?.spectator;
     const players = state.players.filter(p => !p.spectator);
+    const activeRound = state.phase === 'pick' || state.phase === 'guess';
+    $('match-controls').hidden = !isHost || state.round === 0;
+    $('pause-match').hidden = !activeRound;
+    $('pause-match').textContent = state.paused ? 'Retomar partida' : 'Pausar partida';
+    $('edit-next').hidden = state.phase === 'lobby' || Boolean(state.result?.standings);
+    for (const id of ['pause-match', 'edit-next', 'restart-match']) $(id).disabled = !ready;
+    $('pause-status').hidden = !state.paused;
+    if (!isHost || !ready || state.phase === 'lobby' || state.result?.standings) closeRoundEditor();
     $('role-label').textContent = spectator ? (isHost ? 'Anfitrião · Só organiza' : 'Espectador') : isHost ? 'Anfitrião' : 'Participante';
     $('close-room').hidden = !isHost;
     $('lobby-view').hidden = state.phase !== 'lobby';
@@ -186,21 +258,33 @@
     $('lobby-players').innerHTML = state.players.map(p => playerMarkup(p, true)).join('');
     if (state.phase === 'lobby') {
       const hasPlayers = players.some(p => p.connected);
-      $('start-game').disabled = !ready || !hasPlayers;
+      if (!ready || !isHost) lobbySettings = null;
+      else if (!lobbySettings) {
+        const loading = lobbySettings = { pending: true };
+        send('nextSettings', null, (error, reply) => {
+          if (lobbySettings !== loading) return;
+          loading.pending = false;
+          if (reply?.settings) applyQuestionOptions(reply.settings);
+          showError('host-error', error || '');
+          render();
+        });
+      }
+      $('start-game').disabled = !ready || !hasPlayers || Boolean(lobbySettings?.pending);
       $('start-game').textContent = state.round ? 'Começar a rodada' : 'Começar a partida';
       $('start-hint').hidden = hasPlayers;
       $('guess-form').hidden = true;
       $('match-result').hidden = true;
       return;
     }
+    lobbySettings = null;
     const candidate = state.players[state.turnIndex];
     const picker = candidate?.connected && !candidate.spectator ? candidate : null;
     const guessing = state.phase === 'guess';
     const idx = state.guessIndex;
     const currentId = state.guessOrder[idx];
     const guesser = players.find(p => p.id === currentId);
-    const iCanPick = ready && state.phase === 'pick' && picker?.id === myPlayerId;
-    const iCanGuess = ready && guessing && currentId === myPlayerId;
+    const iCanPick = ready && !state.paused && state.phase === 'pick' && picker?.id === myPlayerId;
+    const iCanGuess = ready && !state.paused && guessing && currentId === myPlayerId;
     const round = `Rodada ${state.round} de ${state.matchLength}`;
     $('round-label').textContent = state.questionLabel ? `${round} · ${state.questionLabel}` : round;
     const revealed = Object.keys(state.revealed || {}).length;
@@ -212,12 +296,12 @@
     }).join('');
     $('turnbar').hidden = state.phase === 'ended';
     $('skip-pick').hidden = !iCanPick || players.filter(p => p.connected).length < 2;
-    const turnMessage = guessing ? (iCanGuess ? 'É sua vez de palpitar.' : `${guesser?.name || 'Outro jogador'} está na vez de palpitar.`) :
+    const turnMessage = state.paused ? 'Partida pausada.' : guessing ? (iCanGuess ? 'É sua vez de palpitar.' : `${guesser?.name || 'Outro jogador'} está na vez de palpitar.`) :
       iCanPick ? 'É sua vez! Escolha um número.' : picker ? `${picker.name} vai escolher uma palavra.` : 'Aguardando um jogador se reconectar.';
     if ($('board-caption').textContent !== turnMessage) $('board-caption').textContent = turnMessage;
     $('guess-panel').hidden = !guessing;
-    $('guess-caption').textContent = iCanGuess ? 'É sua vez de responder.' : `${guesser?.name || 'Outro jogador'} está na vez de responder.`;
-    $('guess-count').textContent = `Palpite ${idx + 1} de ${state.guessOrder.length}`;
+    $('guess-caption').textContent = state.paused ? 'Aguardando retomada' : iCanGuess ? 'É sua vez de responder.' : `${guesser?.name || 'Outro jogador'} está na vez de responder.`;
+    $('guess-count').textContent = state.paused ? '' : `Palpite ${idx + 1} de ${state.guessOrder.length}`;
     $('guess-clue').innerHTML = guessing ? Array.from({ length: state.wordCount }, (_, index) => {
       const word = state.revealed[index];
       if (!word) return '<span class="clue-gap" aria-hidden="true">___</span>';
@@ -230,9 +314,8 @@
     $('guess-input').disabled = !iCanGuess;
     $('guess-submit').disabled = !iCanGuess;
     $('guess-skip').disabled = !iCanGuess;
-    if (!iCanGuess) $('guess-input').value = '';
+    if (!guessing || currentId !== myPlayerId) $('guess-input').value = '';
     $('scoreboard').innerHTML = players.map(p => playerMarkup(p)).join('');
-    $('event-log').innerHTML = (state.events || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
     $('round-result').hidden = state.phase !== 'ended';
     const standings = state.result?.standings;
     const showFinal = Boolean(standings) && $('match-result').hidden;
@@ -287,18 +370,37 @@
       const name = short($('join-name').value);
       if (name) joinRoom(name, $('join-code').value);
     });
-    document.querySelectorAll('input[name="question-mode"]').forEach(x => x.addEventListener('change', () => {
-      const custom = document.querySelector('input[name="question-mode"]:checked').value === 'custom';
-      $('custom-fields').hidden = !custom;
-      $('surprise-fields').hidden = custom;
-    }));
+    document.querySelectorAll('input[name="question-mode"]').forEach(x => x.addEventListener('change', showQuestionMode));
     $('start-game').addEventListener('click', () => {
-      const mode = document.querySelector('input[name="question-mode"]:checked')?.value || 'surprise';
-      const question = mode === 'custom'
-        ? { question: $('custom-question').value.trim(), answer: $('custom-answer').value.trim() }
-        : { theme: $('question-theme').value, difficulty: $('question-difficulty').value };
       const match = state?.round === 0 ? { matchLength: Number($('match-length').value) } : {};
-      action('start', { mode, ...question, ...match });
+      action('start', { ...readQuestionOptions(), ...match });
+    });
+    $('pause-match').addEventListener('click', () => action(state?.paused ? 'resume' : 'pause'));
+    function clearCustomQuestion(sent) {
+      if (!sent) return;
+      $('custom-question').value = '';
+      $('custom-answer').value = '';
+    }
+    $('restart-match').addEventListener('click', () => confirmRoom('Reiniciar partida', 'O placar e as rodadas serão zerados. Os participantes ficam na mesma sala.', () => action('restart', {}, clearCustomQuestion)));
+    $('edit-next').addEventListener('click', editNextRound);
+    $('cancel-round-edit').addEventListener('click', () => closeRoundEditor());
+    $('round-editor').addEventListener('cancel', event => {
+      event.preventDefault();
+      if (!$('cancel-round-edit').disabled) closeRoundEditor();
+    });
+    $('round-editor-form').addEventListener('submit', event => {
+      event.preventDefault();
+      if (!ready || !isHost || $('save-round-edit').disabled) return;
+      const snapshot = editorSnapshot;
+      $('save-round-edit').disabled = true;
+      $('cancel-round-edit').disabled = true;
+      send('nextSettings', readQuestionOptions(), (error) => {
+        if (!$('round-editor').open || editorSnapshot !== snapshot) return;
+        if (!error) return closeRoundEditor(true);
+        showError('editor-error', error);
+        $('save-round-edit').disabled = false;
+        $('cancel-round-edit').disabled = false;
+      });
     });
     $('word-grid').addEventListener('click', e => {
       const button = e.target.closest('[data-word]');
@@ -313,7 +415,7 @@
     $('guess-skip').addEventListener('click', () => action('skipGuess'));
     $('next-round').addEventListener('click', () => {
       const next = state?.result?.standings ? 'rematch' : 'nextRound';
-      action(next, {}, sent => { if (sent) { $('custom-question').value = ''; $('custom-answer').value = ''; } });
+      action(next, {}, clearCustomQuestion);
     });
     $('copy-code').addEventListener('click', () => copy(roomCode, 'Código copiado!'));
     $('copy-link').addEventListener('click', () => copy(invitation(), 'Link copiado!'));
@@ -334,15 +436,15 @@
       const others = state?.players.filter(p => p.id !== myPlayerId).length || 0;
       const message = isHost && others ? 'Sair desta sala? Outro participante assumirá como anfitrião.' :
         isHost ? 'Sair da sala? Como você é a única pessoa, a sala será fechada.' : 'Deseja sair desta sala?';
-      confirmRoom('Sair da sala', message, 'leaveRoom');
+      confirmRoom('Sair da sala', message, () => roomControl('leaveRoom'));
     });
     $('close-room').addEventListener('click', () => {
-      confirmRoom('Encerrar sala', 'A partida será encerrada para todos e o código deixará de funcionar.', 'closeRoom');
+      confirmRoom('Encerrar sala', 'A partida será encerrada para todos e o código deixará de funcionar.', () => roomControl('closeRoom'));
     });
     function handleRemoveClick(e) {
       const target = e.target.closest('[data-kick]');
       if (!target || !isHost) return;
-      confirmRoom('Remover participante', `Remover ${target.dataset.name} da sala? O participante perderá o acesso a esta partida.`, 'kickPlayer', { playerId: target.dataset.kick });
+      confirmRoom('Remover participante', `Remover ${target.dataset.name} da sala? O participante perderá o acesso a esta partida.`, () => roomControl('kickPlayer', { playerId: target.dataset.kick }));
     }
     $('lobby-players').addEventListener('click', handleRemoveClick);
     $('scoreboard').addEventListener('click', handleRemoveClick);
@@ -369,6 +471,7 @@
     socket.on('roomState', next => {
       if (!ready) return;
       state = next;
+      updateLog(next);
       render();
     });
     socket.on('disconnect', () => {

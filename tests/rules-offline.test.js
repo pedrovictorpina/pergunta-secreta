@@ -166,6 +166,87 @@ test('partidas de cinco e dez rodadas encerram com classificação e permitem re
   }
 });
 
+test('só o anfitrião pausa e retoma sem perder a vez de quem se reconecta', () => {
+  const server = loadServer();
+  const { ana, bruno, a, b, room } = roomWithThree(server);
+  const late = server.io.connect();
+  const action = (socket, type, data = {}) => socket.send('action', { action: type, ...data });
+  assert.equal(action(ana, 'start', { mode: 'custom', question: 'Qual cor do céu?', answer: 'Azul' }).ok, true);
+  assert.equal(action(bruno, 'pause').ok, false);
+  assert.equal(action(ana, 'pause').ok, true);
+  assert.equal(action(ana, 'reveal', { index: 0 }).ok, false);
+  assert.equal(late.send('joinRoom', { code: a.code, name: 'Dora' }).state.paused, true);
+  assert.equal(action(ana, 'resume').ok, true);
+  assert.equal(action(ana, 'reveal', { index: 0 }).ok, true);
+  assert.equal(action(ana, 'skipGuess').ok, true);
+  assert.equal(action(ana, 'pause').ok, true);
+  assert.equal(action(bruno, 'skipGuess').ok, false);
+  assert.equal(action(bruno, 'guess', { guess: 'Azul' }).ok, false);
+  assert.equal(action(bruno, 'resume').ok, false);
+  bruno.disconnect();
+  assert.equal(room.guessOrder[room.guessIndex], b.playerId);
+  const returned = server.io.connect();
+  assert.equal(returned.send('joinRoom', { code: a.code, token: b.token, resume: true }).ok, true);
+  assert.equal(action(ana, 'resume').ok, true);
+  assert.equal(room.guessOrder[room.guessIndex], b.playerId);
+  assert.deepEqual(room.revealed, { 0: 'Qual' });
+  assert.equal(action(returned, 'guess', { guess: 'Azul' }).ok, true);
+  assert.equal(room.result.winnerId, b.playerId);
+});
+
+test('só o anfitrião edita a próxima rodada e reinicia a partida na mesma sala', () => {
+  const server = loadServer();
+  const { ana, bruno, a, room } = roomWithThree(server);
+  const action = (socket, type, data = {}) => socket.send('action', { action: type, ...data });
+  const next = { mode: 'custom', question: 'Qual planeta vermelho?', answer: 'Marte' };
+  const playerIds = room.players.map(p => p.id);
+  assert.equal(action(ana, 'start', { mode: 'custom', question: 'Qual cor do céu?', answer: 'Azul' }).ok, true);
+  assert.equal(bruno.send('nextSettings', next).ok, false);
+  assert.equal(bruno.send('nextSettings', null).ok, false);
+  assert.equal(ana.send('nextSettings', { ...next, answer: ' | ' }).ok, false);
+  assert.equal(ana.send('nextSettings', next).ok, true);
+  assert.deepEqual(ana.send('nextSettings', null).settings, next);
+  assert.equal(room.question, 'Qual cor do céu?');
+  assert.equal(server.publicState(room).nextSettings, undefined);
+  assert.equal(action(ana, 'reveal', { index: 0 }).ok, true);
+  assert.equal(action(ana, 'guess', { guess: 'Azul' }).ok, true);
+  assert.equal(action(ana, 'nextRound').ok, true);
+  assert.equal(action(ana, 'start').ok, true);
+  assert.equal(room.question, next.question);
+  assert.equal(ana.send('nextSettings', null).settings, null);
+  assert.equal(action(ana, 'pause').ok, true);
+  assert.equal(action(bruno, 'restart').ok, false);
+  assert.equal(action(ana, 'restart').ok, true);
+  assert.equal(room.phase, 'lobby');
+  assert.equal(room.paused, false);
+  assert.equal(room.round, 0);
+  assert.deepEqual(room.players.map(p => p.id), playerIds);
+  assert.deepEqual(room.players.map(p => p.score), [0, 0, 0]);
+  assert.deepEqual(room.revealed, {});
+});
+
+test('mantém todo o histórico da sala e transmite só as novas jogadas a quem já entrou', () => {
+  const server = loadServer();
+  const { ana, a, room } = roomWithThree(server);
+  const start = { action: 'start', mode: 'custom', question: 'Qual cor do céu?', answer: 'Azul' };
+  assert.equal(ana.send('action', start).ok, true);
+  for (let i = 0; i < 8; i++) {
+    assert.equal(ana.send('action', { action: 'pause' }).ok, true);
+    assert.equal(ana.send('action', { action: 'resume' }).ok, true);
+  }
+  const beforeRestart = room.events.length;
+  assert.ok(beforeRestart > 14);
+  assert.equal(ana.send('action', { action: 'restart' }).ok, true);
+  const update = ana.notifications.at(-1)[1];
+  assert.equal(update.eventOffset, beforeRestart);
+  assert.deepEqual(update.events, ['Partida reiniciada pelo anfitrião.']);
+  const late = server.io.connect().send('joinRoom', { code: a.code, name: 'Dora' });
+  assert.equal(late.ok, true);
+  assert.equal(late.state.eventOffset, 0);
+  assert.equal(late.state.events[0], 'Sala criada. Compartilhe o link com seus colegas.');
+  assert.equal(late.state.events.length, beforeRestart + 2);
+});
+
 test('ao remover quem vai chutar, a vez passa ao próximo em ordem circular', () => {
   const server = loadServer();
   const { ana, bruno, carla, a, b, c, room } = roomWithThree(server);

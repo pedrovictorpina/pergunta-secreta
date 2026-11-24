@@ -45,6 +45,10 @@ O arquivo `render.yaml` pode ser usado como Blueprint, se preferir.
 
 A remoção impede o retorno usando a sessão anterior e o mesmo nome. Como não há contas de usuário, não é uma proibição de identidade infalível: alguém poderia tentar um nome diferente.
 
+Durante a partida, o anfitrião pode **pausar e retomar** os turnos. Novos jogadores podem entrar enquanto a sala estiver pausada. Também pode **editar a próxima rodada**, escolhendo tema e dificuldade ou uma pergunta própria, e **reiniciar a partida**, zerando o placar e voltando à preparação da primeira rodada na mesma sala.
+
+**Últimas jogadas** exibe todo o histórico da sala, com os eventos mais recentes no topo. O histórico continua disponível nas rodadas seguintes, após reiniciar e durante a revanche. Ele fica em memória enquanto a sala existir.
+
 ## Instalar no celular
 
 1. Abra o endereço publicado em HTTPS.
@@ -59,9 +63,9 @@ Substitua os arquivos do projeto no **mesmo repositório GitHub** usado pelo ser
 
 ## Regras
 
-1. Alguém cria a sala e compartilha o link. Cada um entra com seu nome. O anfitrião escolhe 5 ou 10 rodadas antes de começar.
+1. Alguém cria a sala e compartilha o link. Cada um entra com seu nome, inclusive com a partida em andamento. O anfitrião escolhe 5 ou 10 rodadas antes de começar.
 2. Quem está na vez escolhe um número. A palavra revelada aparece **para todos** no tabuleiro e na prévia da pergunta com lacunas, acima do palpite.
-3. Os palpites seguem automaticamente a ordem circular, começando por quem pediu a dica.
+3. Os palpites seguem automaticamente a ordem circular, começando por quem pediu a dica. Quem entra durante os palpites acompanha a jogada e participa a partir da próxima dica.
 4. Cada pessoa pode tentar uma vez por palavra revelada. Se ninguém acertar, o próximo participante pede outra palavra.
 5. Quem acerta ganha um ponto. No fim da partida, todos veem a classificação e os empates. O anfitrião pode preparar uma revanche na mesma sala, com o placar zerado.
 6. Com um só jogador, ele pode pedir novas palavras após errar ou pular a tentativa.

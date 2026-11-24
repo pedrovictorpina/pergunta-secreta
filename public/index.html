@@ -74,6 +74,7 @@
     .clue-gap{color:var(--muted)}.clue-current{color:var(--mint);text-decoration:underline;text-underline-offset:3px}
     .score{display:flex;align-items:center;gap:10px;padding:11px 0}.score+.score{border-top:1px solid #34415d}.score .name{flex:1;font-size:13px;font-weight:750;min-width:0;overflow-wrap:anywhere}.score .points{font-weight:900;font-size:14px;white-space:nowrap}.score.active .name{color:var(--mint)}
     .logs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;max-height:190px;overflow:auto}.logs li{border-left:2px solid #696397;padding-left:10px;color:#b7c3da;font-size:12px}
+    .logs:focus-visible{outline:2px solid var(--mint);outline-offset:2px}
     .endbox{margin-bottom:16px;background:linear-gradient(120deg,#2f5750,#283e58);border:1px solid #669c91;border-radius:16px;padding:22px;overflow-wrap:anywhere}.endbox h2{font-size:27px;margin:6px 0}.answer{font-size:22px;color:var(--mint);font-weight:900}
     .result-actions{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
     .standings{list-style:none;margin:0;padding:0}.standings .count{min-width:2.75em;padding:4px 8px;text-align:center}
@@ -167,12 +168,32 @@
     </dialog>
     <div id="room-error" class="error" role="alert" hidden></div>
     <div id="connection-warning" class="connect-warning" hidden></div>
+    <section id="match-controls" class="card room-bar" aria-label="Controles da partida" hidden>
+      <div class="room-actions">
+        <button id="pause-match" class="btn small secondary" type="button">Pausar partida</button>
+        <button id="edit-next" class="btn small secondary" type="button">Editar próxima rodada</button>
+        <button id="restart-match" class="btn small danger" type="button">Reiniciar partida</button>
+      </div>
+    </section>
+    <p id="pause-status" class="connect-warning" role="status" hidden>Partida pausada. Aguarde o anfitrião retomar.</p>
+    <dialog id="round-editor" class="card room-dialog" aria-labelledby="round-editor-title">
+      <form id="round-editor-form">
+        <h2 id="round-editor-title">Editar próxima rodada</h2>
+        <div id="editor-question-fields"></div>
+        <div id="editor-error" class="error" role="alert" hidden></div>
+        <div class="result-actions">
+          <button id="cancel-round-edit" class="btn ghost" type="button" autofocus>Cancelar</button>
+          <button id="save-round-edit" class="btn primary" type="submit">Salvar</button>
+        </div>
+      </form>
+    </dialog>
     <section id="lobby-view">
       <div class="hero"><h1>Sala de espera</h1><p class="lead" id="lobby-lead">Os participantes aparecem aqui assim que entram. Quando estiver tudo certo, o anfitrião começa a rodada.</p></div>
       <div class="lobby-grid">
         <section class="card lobby-card"><h2>Participantes</h2><p class="sub">Cada pessoa entra no próprio computador ou celular.</p><div id="lobby-players" class="person-list"></div></section>
         <section class="card lobby-card" id="host-settings" hidden>
           <h2>Preparar a pergunta</h2><p class="sub">Escolha uma pergunta surpresa ou cadastre a sua.</p>
+          <div id="lobby-question-fields"><div id="round-options">
           <label class="choice"><input type="radio" name="question-mode" value="surprise" checked> Pergunta surpresa (ninguém vê a resposta)</label>
           <label class="choice"><input type="radio" name="question-mode" value="custom"> Escrever minha pergunta</label>
           <div class="question-filters" id="surprise-fields">
@@ -196,6 +217,7 @@
             </div>
           </div>
           <div id="custom-fields" hidden><label for="custom-question">Pergunta secreta</label><textarea rows="3" id="custom-question" maxlength="320" placeholder="Ex.: Qual planeta é conhecido como planeta vermelho?"></textarea><label for="custom-answer">Resposta correta</label><input id="custom-answer" maxlength="180" placeholder="Ex.: Marte"><p class="muted">Para mais de uma resposta válida, separe por |.</p></div>
+          </div></div>
           <div id="match-settings" hidden>
             <label for="match-length">Duração da partida</label>
             <select id="match-length">
@@ -247,7 +269,7 @@
             <form id="guess-form" class="guessform" hidden><input id="guess-input" maxlength="120" aria-label="Seu palpite" placeholder="Qual é a resposta?" autocomplete="off"><button id="guess-submit" class="btn primary" type="submit">Enviar palpite</button><button id="guess-skip" class="btn ghost small" type="button">Pular meu palpite</button></form><p id="feedback" class="feedback" aria-live="polite"></p>
           </section>
           <section class="card"><h3>Placar</h3><div id="scoreboard"></div></section>
-          <section class="card history"><h3>Últimas jogadas</h3><ul class="logs" id="event-log"></ul></section>
+          <section class="card history"><h3 id="event-log-title">Últimas jogadas</h3><ul class="logs" id="event-log" tabindex="0" aria-labelledby="event-log-title"></ul></section>
         </aside>
       </div>
     </main>

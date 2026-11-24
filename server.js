@@ -45,8 +45,7 @@ function createCode() {
   throw new Error('Sem códigos de sala disponíveis.');
 }
 function addLog(room, message) {
-  room.events.unshift(message);
-  room.events = room.events.slice(0, 14);
+  room.events.push(message);
 }
 function player(room, id) { return room.players.find(p => p.id === id); }
 function connected(room, id) { return Boolean(player(room, id)?.connected); }
@@ -97,12 +96,24 @@ function nextConnectedAtOrAfter(room, start) {
   return ((start % room.players.length) + room.players.length) % room.players.length;
 }
 
+function repairTurn(room) {
+  if (room.paused || (room.phase !== 'pick' && room.phase !== 'guess')) return;
+  if (room.players.every(p => p.spectator)) {
+    endRound(room, null);
+  } else if (room.phase === 'pick' && !canPlay(currentPicker(room))) {
+    room.turnIndex = nextConnectedAtOrAfter(room, room.turnIndex);
+  } else if (room.phase === 'guess' && !connected(room, room.guessOrder[room.guessIndex])) {
+    // advanceGuess começa avançando uma posição; retrocede para não pular quem vem depois.
+    room.guessIndex--;
+    advanceGuess(room);
+  }
+}
+
 // Remove uma pessoa do jogo e reorganiza os turnos, inclusive durante a rodada.
 function removePlayer(room, p, { kicked = false } = {}) {
   const oldIndex = room.players.findIndex(x => x.id === p.id);
   if (oldIndex === -1) return;
   const wasPicker = room.turnIndex === oldIndex;
-  const wasGuessing = room.phase === 'guess' && room.guessOrder[room.guessIndex] === p.id;
   const guessPosition = room.guessOrder.indexOf(p.id);
   const sock = p.socketId && io.sockets.sockets.get(p.socketId);
   if (sock) {
@@ -141,18 +152,7 @@ function removePlayer(room, p, { kicked = false } = {}) {
     room.hostId = replacement.id;
     addLog(room, `${replacement.name} agora é o anfitrião.`);
   }
-  if ((room.phase === 'pick' || room.phase === 'guess') && room.players.every(x => x.spectator)) {
-    endRound(room, null);
-    return;
-  }
-  if (room.phase === 'pick' && !canPlay(currentPicker(room))) {
-    room.turnIndex = nextConnectedAtOrAfter(room, room.turnIndex);
-  }
-  if (room.phase === 'guess' && (wasGuessing || room.guessIndex >= room.guessOrder.length || !connected(room, room.guessOrder[room.guessIndex]))) {
-    // advanceGuess começa avançando uma posição; retrocede para não pular quem vem depois.
-    room.guessIndex--;
-    advanceGuess(room);
-  }
+  repairTurn(room);
 }
 
 function closeRoom(room) {
@@ -168,19 +168,21 @@ function closeRoom(room) {
   rooms.delete(room.code);
 }
 
-function publicState(room) {
+function publicState(room, eventOffset = 0) {
   return {
-    phase: room.phase, round: room.round, matchLength: room.matchLength, questionLabel: room.questionLabel,
+    phase: room.phase, paused: room.paused, round: room.round, matchLength: room.matchLength, questionLabel: room.questionLabel,
     players: room.players.map(p => ({ id: p.id, name: p.name, score: p.score, connected: p.connected, spectator: p.spectator === true })),
     hostId: room.hostId, turnIndex: room.turnIndex, guessOrder: room.guessOrder,
     guessIndex: room.guessIndex, wordCount: room.wordCount,
     revealed: room.revealed, clueIndex: room.phase === 'guess' ? room.clueIndex : null,
-    events: room.events, result: room.result
+    eventOffset, events: room.events.slice(eventOffset), result: room.result
   };
 }
 function publish(room) {
   room.lastActivity = Date.now();
-  io.to(ROOM_CHANNEL(room.code)).emit('roomState', publicState(room));
+  const state = publicState(room, room.publishedEvents);
+  room.publishedEvents = room.events.length;
+  io.to(ROOM_CHANNEL(room.code)).emit('roomState', state);
 }
 function releaseCurrentSocket(socket) {
   const session = socket.data.session;
@@ -193,8 +195,7 @@ function releaseCurrentSocket(socket) {
   p.connected = false;
   p.socketId = null;
   addLog(room, `${p.name} desconectou.`);
-  if (room.phase === 'pick' && currentPicker(room)?.id === p.id) room.turnIndex = nextConnectedIndex(room, room.turnIndex);
-  if (room.phase === 'guess' && room.guessOrder[room.guessIndex] === p.id) advanceGuess(room);
+  repairTurn(room);
   if (room.hostId === p.id) {
     const expectedHostId = p.id;
     clearTimeout(room.hostTimer);
@@ -224,7 +225,7 @@ function bindPlayer(socket, room, p) {
   p.connected = true;
   socket.join(ROOM_CHANNEL(room.code));
   socket.data.session = { roomCode: room.code, playerId: p.id };
-  if (room.phase === 'pick' && canPlay(p) && !canPlay(currentPicker(room))) room.turnIndex = room.players.indexOf(p);
+  if (!room.paused && room.phase === 'pick' && canPlay(p) && !canPlay(currentPicker(room))) room.turnIndex = room.players.indexOf(p);
   if (room.hostTimer && room.hostId === p.id) clearTimeout(room.hostTimer);
 }
 function getSession(socket) {
@@ -234,8 +235,33 @@ function getSession(socket) {
   if (!room || !p || p.socketId !== socket.id || !p.connected) return null;
   return { room, p };
 }
+
+function parseRoundSettings(input) {
+  if (input?.mode === 'custom') {
+    const question = shorten(input.question, 320);
+    const answer = shorten(input.answer, 180);
+    if (wordsOf(question).length < 2 || !answer.split('|').some(normalize)) return { error: 'Preencha a pergunta com pelo menos duas palavras e informe a resposta.' };
+    return { settings: { mode: 'custom', question, answer } };
+  }
+  const theme = input?.theme ?? 'gerais';
+  const difficulty = input?.difficulty ?? 'medio';
+  if (typeof theme !== 'string' || !Object.hasOwn(QUESTION_THEMES, theme)) return { error: 'Escolha um tema disponível.' };
+  if (typeof difficulty !== 'string' || !Object.hasOwn(QUESTION_DIFFICULTIES, difficulty)) return { error: 'Escolha Fácil, Médio ou Difícil.' };
+  return { settings: { mode: 'surprise', theme, difficulty } };
+}
+
 function handleAction(room, p, payload) {
   const action = payload?.action;
+  if (action === 'pause' || action === 'resume') {
+    if (room.hostId !== p.id) return 'Somente o anfitrião pode pausar ou retomar a partida.';
+    const pause = action === 'pause';
+    if (pause === room.paused || (room.phase !== 'pick' && room.phase !== 'guess')) return 'Esta ação não está disponível agora.';
+    room.paused = pause;
+    addLog(room, pause ? 'Partida pausada pelo anfitrião.' : 'Partida retomada pelo anfitrião.');
+    if (!pause) repairTurn(room);
+    return null;
+  }
+  if (room.paused && action !== 'restart') return 'A partida está pausada. Aguarde o anfitrião retomar.';
   if (action === 'start') {
     if (room.hostId !== p.id || (room.phase !== 'lobby' && room.phase !== 'ended')) return 'Só o anfitrião pode começar a rodada.';
     if (room.result?.standings) return 'A partida acabou. Inicie uma revanche para jogar de novo.';
@@ -243,16 +269,13 @@ function handleAction(room, p, payload) {
     const matchLength = payload.matchLength ?? room.matchLength;
     if (room.round && matchLength !== room.matchLength) return 'O número de rodadas já foi definido para esta partida.';
     if (matchLength !== 5 && matchLength !== 10) return 'Escolha uma partida de 5 ou 10 rodadas.';
-    let question, answer, questionLabel = null;
-    if (payload.mode === 'custom') {
-      question = shorten(payload.question, 320);
-      answer = shorten(payload.answer, 180);
-      if (!question || !answer || wordsOf(question).length < 2) return 'Preencha a pergunta com pelo menos duas palavras e informe a resposta.';
-    } else {
-      const theme = payload.theme ?? 'gerais';
-      const difficulty = payload.difficulty ?? 'medio';
-      if (typeof theme !== 'string' || !Object.hasOwn(QUESTION_THEMES, theme)) return 'Escolha um tema disponível.';
-      if (typeof difficulty !== 'string' || !Object.hasOwn(QUESTION_DIFFICULTIES, difficulty)) return 'Escolha Fácil, Médio ou Difícil.';
+    const settingsInput = payload.mode !== undefined || payload.theme !== undefined || payload.difficulty !== undefined ? payload : room.nextSettings;
+    const { settings, error } = parseRoundSettings(settingsInput);
+    if (error) return error;
+    let { question, answer } = settings;
+    let questionLabel = null;
+    if (settings.mode === 'surprise') {
+      const { theme, difficulty } = settings;
       const [themeLabel, catalog] = QUESTION_THEMES[theme];
       const questions = catalog[difficulty];
       let asked = room.asked.get(questions);
@@ -273,6 +296,7 @@ function handleAction(room, p, payload) {
     room.wordTokens = wordsOf(question);
     room.wordCount = room.wordTokens.length;
     room.matchLength = matchLength;
+    room.nextSettings = null;
     room.round++;
     room.phase = 'pick';
     room.revealed = {};
@@ -283,22 +307,24 @@ function handleAction(room, p, payload) {
     addLog(room, `Rodada ${room.round} iniciada. Pergunta escondida!`);
     return null;
   }
-  if (action === 'nextRound' || action === 'rematch') {
-    if (room.hostId !== p.id || room.phase !== 'ended') return 'Apenas o anfitrião pode preparar a próxima rodada.';
+  if (action === 'nextRound' || action === 'rematch' || action === 'restart') {
+    const restart = action === 'restart';
+    if (room.hostId !== p.id) return 'Somente o anfitrião pode preparar ou reiniciar a partida.';
+    if (restart ? room.round === 0 : room.phase !== 'ended') return 'Esta ação não está disponível agora.';
     const rematch = action === 'rematch';
     const matchEnded = Boolean(room.result?.standings);
-    if (rematch !== matchEnded) return matchEnded ? 'A partida acabou. Inicie uma revanche para jogar de novo.' : 'Termine a partida antes de começar uma revanche.';
-    if (rematch) {
+    if (!restart && rematch !== matchEnded) return matchEnded ? 'A partida acabou. Inicie uma revanche para jogar de novo.' : 'Termine a partida antes de começar uma revanche.';
+    if (rematch || restart) {
       room.round = 0;
       room.players.forEach(player => { player.score = 0; });
-      room.events = [];
     }
+    room.paused = false;
     room.phase = 'lobby';
     room.turnIndex = nextConnectedIndex(room, room.turnIndex);
     room.wordCount = 0; room.wordTokens = []; room.answer = ''; room.question = '';
     room.questionLabel = null;
     room.revealed = {}; room.result = null; room.guessOrder = []; room.guessIndex = 0;
-    addLog(room, rematch ? 'Preparando a revanche.' : 'Preparando uma nova rodada.');
+    addLog(room, restart ? 'Partida reiniciada pelo anfitrião.' : rematch ? 'Preparando a revanche.' : 'Preparando uma nova rodada.');
     return null;
   }
   if (p.spectator) return 'Quem só organiza acompanha a rodada sem jogar.';
@@ -341,9 +367,9 @@ io.on('connection', socket => {
     if (rooms.size >= MAX_ROOMS) return fail(ack, 'Muitas salas ativas no momento.');
     const code = createCode();
     const p = { id: crypto.randomUUID(), name, score: 0, token: genToken(), connected: false, socketId: null, spectator: data?.spectator === true };
-    const room = { code, hostId: p.id, players: [p], phase: 'lobby', round: 0, matchLength: 5, turnIndex: 0, guessOrder: [], guessIndex: 0,
+    const room = { code, hostId: p.id, players: [p], phase: 'lobby', paused: false, round: 0, matchLength: 5, nextSettings: null, turnIndex: 0, guessOrder: [], guessIndex: 0,
       wordCount: 0, wordTokens: [], question: '', answer: '', questionLabel: null, revealed: {}, result: null,
-      events: ['Sala criada. Compartilhe o link com seus colegas.'], asked: new Map(), kickedTokens: new Set(), kickedNames: new Set(), lastActivity: Date.now(), hostTimer: null };
+      events: ['Sala criada. Compartilhe o link com seus colegas.'], publishedEvents: 0, asked: new Map(), kickedTokens: new Set(), kickedNames: new Set(), lastActivity: Date.now(), hostTimer: null };
     rooms.set(code, room);
     bindPlayer(socket, room, p);
     ok(ack, { code, playerId: p.id, token: p.token, name: p.name, hostId: room.hostId, state: publicState(room) });
@@ -359,7 +385,6 @@ io.on('connection', socket => {
     let p = token && room.players.find(x => x.token === token);
     if (data?.resume === true && !p) return fail(ack, 'Sua sessão nesta sala expirou. Entre novamente com seu nome.');
     if (!p) {
-      if (room.phase !== 'lobby') return fail(ack, 'A partida já começou. Só é possível entrar numa nova sala antes de começar a rodada.');
       if (!NAME_PATTERN.test(name)) return fail(ack, 'Informe seu nome.');
       if (room.kickedNames.has(normalize(name))) return fail(ack, 'Você foi removido desta sala pelo anfitrião.');
       if (room.players.length >= MAX_PLAYERS) return fail(ack, 'A sala está cheia (máximo de 12 participantes).');
@@ -379,6 +404,17 @@ io.on('connection', socket => {
     if (message) return fail(ack, message);
     ok(ack, {});
     publish(session.room);
+  });
+  socket.on('nextSettings', (data, ack) => {
+    const session = getSession(socket);
+    if (!session || session.room.hostId !== session.p.id) return fail(ack, 'Somente o anfitrião pode editar a próxima rodada.');
+    const { room } = session;
+    if (data != null) {
+      const { settings, error } = parseRoundSettings(data);
+      if (error) return fail(ack, error);
+      room.nextSettings = settings;
+    }
+    ok(ack, { settings: room.nextSettings });
   });
   socket.on('leaveRoom', (_, ack) => {
     const session = getSession(socket);

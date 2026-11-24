@@ -79,6 +79,35 @@ test('dois computadores: revela palavra para todos e palpite em ordem circular',
   assert.deepEqual(room.guessOrder, [joinedC.playerId, created.playerId, joinedB.playerId]);
 });
 
+test('novos jogadores entram durante a rodada sem interromper a vez atual', async () => {
+  const ana = await connect();
+  const bruno = await connect();
+  const carla = await connect();
+  const { code, playerId: anaId } = await send(ana, 'createRoom', { name: 'Ana' });
+  assert.equal((await send(ana, 'action', { action: 'start', mode: 'custom', question: 'Qual é a cor do céu?', answer: 'Azul' })).ok, true);
+
+  const brunoJoined = await send(bruno, 'joinRoom', { code, name: 'Bruno' });
+  assert.equal(brunoJoined.ok, true);
+  assert.equal(brunoJoined.state.phase, 'pick');
+  assert.equal(brunoJoined.state.players[brunoJoined.state.turnIndex].id, anaId);
+  assert.equal((await send(ana, 'action', { action: 'reveal', index: 0 })).ok, true);
+
+  const carlaJoined = await send(carla, 'joinRoom', { code, name: 'Carla' });
+  assert.equal(carlaJoined.ok, true);
+  assert.equal(carlaJoined.state.phase, 'guess');
+  assert.deepEqual(carlaJoined.state.revealed, { 0: 'Qual' });
+  assert.equal(carlaJoined.state.players.find(p => p.id === carlaJoined.playerId).score, 0);
+  assert.deepEqual(carlaJoined.state.guessOrder, [anaId, brunoJoined.playerId]);
+  assert.equal((await send(carla, 'action', { action: 'guess', guess: 'Azul' })).ok, false);
+
+  assert.equal((await send(ana, 'action', { action: 'skipGuess' })).ok, true);
+  assert.equal((await send(bruno, 'action', { action: 'skipGuess' })).ok, true);
+  assert.equal((await send(bruno, 'action', { action: 'reveal', index: 1 })).ok, true);
+  assert.equal((await send(bruno, 'action', { action: 'skipGuess' })).ok, true);
+  assert.equal((await send(carla, 'action', { action: 'guess', guess: 'Azul' })).ok, true);
+  assert.equal(rooms.get(code).result.winnerId, carlaJoined.playerId);
+});
+
 test('modo solo: após errar, pode revelar outra palavra', async () => {
   const solo = await connect();
   const welcome = await send(solo, 'createRoom', { name: 'Jogador solo' });
